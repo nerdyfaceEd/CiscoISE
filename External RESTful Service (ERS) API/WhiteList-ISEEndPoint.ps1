@@ -6,19 +6,20 @@ Interfaces with Cisco ISE 2.2 External RESTful Service (ERS)
 .DESCRIPTION
 
 Provides several function to manage Cisco ISE resources
-
-Author
+Forked from
     Adam Gross
     @AdamGrossTX
     http://www.asquaredozen.com
     https://github.com/AdamGrossTX
     https://twitter.com/AdamGrossTX
-
+Updated By
+	Ed Klecha
 
 Version Information
     1.0 - Started with a sample script
     1.1 - First Release
     1.2 - Fixed issues with mandatory parameters Remove parameter
+    1.3 - Dropped support for PowerShell less than 7.0 to repair authentication issues
 
 .PARAMETER UserName
 
@@ -85,9 +86,9 @@ https://www.cisco.com/c/en/us/td/docs/security/ise/1-3/api_ref_guide/api_ref_boo
 https://blogs.technet.microsoft.com/heyscriptingguy/2015/10/08/playing-with-json-and-powershell/
 
 .NOTES
-Has Logic to handle Powershell 3.0 and 5.0 web requests.
-#>
 
+#>
+#Requires -Version 7.0
 [cmdletbinding()]
 Param(
     [Parameter(Mandatory,
@@ -255,45 +256,6 @@ Param(
     }
     Return $Headers;
 }
-Function Invoke-ISEWebRequest {
-    Param
-    (
-        [ValidateSet("endpoint","endpointgroup","identitygroup")]
-        [string]$ResourceType,
-        [string]$URI,
-        [string]$Method,
-        [string]$Body
-    )
-    $ERSMediaType = Switch($ResourceType)
-    {
-        "endpoint" {"identity.endpoint.1.2"; break;}
-        "endpointgroup" {"identity.endpointgroup.1.0"; break;}
-    }
-
-    $WebClient = New-Object System.Net.WebClient;
-    $WebClient.headers["AUTHORIZATION"] = "$($BasicAuthValue)"
-    $WebClient.headers["ACCEPT"] = "application/json"
-    $WebClient.headers["CONTENT-TYPE"] = "application/json"
-    $WebClient.headers["ERS-Media-Type"] = "$($ERSMediaType)"
-    $Result = Switch($Method) {
-        'GET' {ConvertFrom-Json $WebClient.DownloadString($URI); Break;}
-        'PUT' {
-                ConvertFrom-Json $WebClient.UploadString($URI,"PUT",$Body);
-                Break;
-                }
-        'POST' {
-                $WebClient.UploadString($URI,$Body);
-                $WebClient.ResponseHeaders[4];
-                Break;
-                }
-        'DELETE'{
-                $WebClient.UploadString($URI,"DELETE", "");
-                $WebClient.ResponseHeaders;
-                Break;
-                }
-    }
-    Return $Result
-}
 Function Search-ISEResource {
 [cmdletbinding()]
 Param
@@ -312,12 +274,7 @@ Param
     Try {
         LogIt "Started Searching for Resource" | Out-Null;
         $SearchURI = "{0}/{1}?filter={2}.{3}.{4}" -f ($ISEBaseURI,$ResourceType,$ResourceProperty,$FilterOperator,$SearchValue)
-        If($PSVersion -ge 5) {
-            $SearchResult = Invoke-RestMethod -Method Get -Uri $SearchURI -Headers $Headers
-        }
-        Else {
-            $SearchResult = Invoke-ISEWebRequest -Method Get -Uri $SearchURI -ResourceType $ResourceType
-        }
+        $SearchResult = Invoke-RestMethod -Method Get -Uri $SearchURI -Headers $Headers
         If($SearchResult.SearchResult.total -eq 0) {
             LogIt "Resource Not Found" -Type Error
             $Resource = $null
@@ -358,12 +315,7 @@ Param
 )
     Logit "Getting ISE Resource"
     Try {
-        If($PSVersion -ge 5) {
-            $Resource = Invoke-RestMethod -Method Get -Uri $ResourceURI -Headers $Headers
-        }
-        Else {
-            $Resource = Invoke-ISEWebRequest -Method Get -Uri $ResourceURI -ResourceType $ResourceType
-        }
+		$Resource = Invoke-RestMethod -Method Get -Uri $ResourceURI -Headers $Headers
     }
     Catch {
         LogIt "An error occurred getting ISE Resource."
@@ -392,12 +344,7 @@ Param
 )
     Logit "Updating ISE Resource"
     Try {
-        If($PSVersion -ge 5) {
-            $UpdateResult = Invoke-RestMethod -Method Put -Uri $ResourceURI -Headers $Headers -Body $ResourceBody
-        }
-        Else {
-            $UpdateResult = Invoke-ISEWebRequest -Method Put -Uri $ResourceURI -Body $ResourceBody -ResourceType $ResourceType
-        }
+		 $UpdateResult = Invoke-RestMethod -Method Put -Uri $ResourceURI -Headers $Headers -Body $ResourceBody
     }
     Catch {
         LogIt "An error occurred updating ISE Resource."
@@ -426,12 +373,7 @@ Param
 )
     Logit "Removing ISE Resource"
     Try {
-        If($PSVersion -ge 5) {
-            $DeleteResult = Invoke-WebRequest -Method Delete -Uri $ResourceURI -Headers $Headers
-        }
-        Else {
-            $DeleteResult = Invoke-ISEWebRequest -Method Delete -Uri $ResourceURI -ResourceType $ResourceType
-        }
+		$DeleteResult = Invoke-WebRequest -Method Delete -Uri $ResourceURI -Headers $Headers
     }
     Catch {
         LogIt "An error occurred updating ISE Resource."
@@ -462,17 +404,11 @@ Param
     Try {
         #$Headers = Get-ISERequestHeaders -RequestType Post -ResourceType $ResourceType
         $CreateURI = "{0}/{1}" -f ($ISEBaseURI,$ResourceType)
-        If($PSVersion -ge 5) {
-            $NewResource = Invoke-WebRequest -Method Post -Uri $CreateURI -Headers $Headers -Body $NewResourceObject -UseBasicParsing
+        $NewResource = Invoke-WebRequest -Method Post -Uri $CreateURI -Headers $Headers -Body $NewResourceObject -UseBasicParsing
             $ResultSet =@{}
             $ResultSet = ConvertFrom-StringData $NewResource.RawContent.Replace('=','XXX').Replace(': ','=').Replace("HTTP/1.1","Result=HTTP/1.1").Replace('XXX','=')
             $Resource = Get-ISEResource -ResourceURI $ResultSet.Location -ResourceType $ResourceType -Headers $ERSEndPointHeaders
-        }
-        Else {
-            $NewResource = Invoke-ISEWebRequest -Method Post -Uri $CreateURI -Headers $Headers -Body $NewResourceObject -ResourceType $ResourceType
-            $Resource = Get-ISEResource -ResourceURI $NewResource[1] -ResourceType $ResourceType -Headers $ERSEndPointHeaders
-        }
-        
+    
     }
     Catch {
         LogIt "An error occurred creating resource."
@@ -558,7 +494,7 @@ Try {
         $NewERSEndPoint.ERSEndPoint.staticGroupAssignment = "false"
         $NewERSEndPoint.ERSEndPoint.staticProfileAssignment = "false"
         $NewERSEndPoint.ERSEndPoint.groupId = $EndPointGroup.EndPointGroup.id
-        $NewERSEndPoint = $NewERSEndPoint | ConvertTo-Json
+        $NewERSEndPoint = $NewERSEndPoint | ConvertTo-Json -Depth 3
         $ERSEndPoint = New-ISEResource -ResourceType endpoint -NewResourceObject $NewERSEndPoint -Headers $ERSEndPointHeaders
     }
     
@@ -583,7 +519,7 @@ Try {
                 $UpdatedERSEndPoint.ERSEndPoint.staticGroupAssignment = "true"
                 $UpdatedERSEndPoint.ERSEndPoint.staticProfileAssignment = "false"
                 $UpdatedERSEndPoint.ERSEndPoint.link.href
-                $UpdatedERSEndPoint = $UpdatedERSEndPoint | ConvertTo-Json
+                $UpdatedERSEndPoint = $UpdatedERSEndPoint | ConvertTo-Json -Depth 3
                 $AddToGroupResult = Update-ISEResource -ResourceURI $ERSEndPointURI -ResourceType endpoint -ResourceBody $UpdatedERSEndPoint -Headers $ERSEndPointHeaders
                 LogIt "$($AddToGroupResult)"
             }
