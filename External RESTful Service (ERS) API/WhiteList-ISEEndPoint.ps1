@@ -136,7 +136,6 @@ Param(
 )
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$Script:PSVersion = $PSVersionTable.PSVersion.Major
 $Script:ISEGroupName =$WhiteListGroupName
 $Script:ISEScriptName = $myInvocation.MyCommand.Name
 $Script:ISELogFilePath = "$($PSScriptRoot)\$($ISEScriptName).log"
